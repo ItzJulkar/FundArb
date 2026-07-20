@@ -64,7 +64,7 @@ def _row(
 # Optional Vercel/edge proxy when VPS IP is geo-blocked by CEX (Binance 451 / Bybit 403).
 CEX_PROXY = (
     __import__("os").environ.get("CEX_PROXY_URL", "").rstrip("/")
-    or "http://129.226.213.46:8790/cex"
+    or "http://127.0.0.1:8790/cex"
 )
 
 
