@@ -24,6 +24,19 @@ def _f(x: Any, default: float = 0.0) -> float:
         return default
 
 
+def _variational_interval_rate(raw_rate: Any, interval_h: float) -> float:
+    """Convert Variational's hourly-bps quote to a decimal settlement rate.
+
+    ``/metadata/stats`` reports ``funding_rate`` in basis points per hour,
+    while ``funding_interval_s`` is the settlement/calculation window.  Omni's
+    UI displays the full-window rate.  For example, raw 0.08125 on an 8-hour
+    BTC market is 0.0065% for the window:
+
+        0.08125 bps/hour * 8 hours / 10_000 = 0.000065
+    """
+    return _f(raw_rate) * interval_h / 10_000.0
+
+
 def _row(
     *,
     exchange: str,
@@ -244,8 +257,9 @@ async def collect_risex(client: httpx.AsyncClient) -> list[dict]:
 async def collect_variational(client: httpx.AsyncClient) -> list[dict]:
     """
     Variational Omni /metadata/stats.
-    funding_rate field is a percent number for the funding interval
-    (e.g. 0.066584 means 0.066584%), NOT a 0-1 decimal.
+    funding_rate is hourly basis points; funding_interval_s is the settlement
+    window. Convert to a decimal rate for that full interval before passing it
+    through the shared 1h/8h normalizer.
     """
     r = await client.get(
         "https://omni-client-api.prod.ap-northeast-1.variational.io/metadata/stats"
@@ -258,9 +272,7 @@ async def collect_variational(client: httpx.AsyncClient) -> list[dict]:
         ticker = L.get("ticker") or ""
         interval_s = _f(L.get("funding_interval_s"), 3600) or 3600
         interval_h = interval_s / 3600.0
-        # percent → decimal fraction
-        rate_pct = _f(L.get("funding_rate"))
-        rate = rate_pct / 100.0
+        rate = _variational_interval_rate(L.get("funding_rate"), interval_h)
         oi_obj = L.get("open_interest") or {}
         oi = None
         try:
