@@ -219,8 +219,17 @@ tbody tr:hover td { background: rgba(255,90,0,0.06); }
 }
 
 td.rate { text-align: right; font-variant-numeric: tabular-nums; }
-td.rate.hi { background: var(--pos-soft); }
-td.rate.lo { background: var(--neg-soft); }
+/* Per-row extremes: strong fills make the best/worst venue obvious at a glance. */
+td.rate.hi {
+  background: #b7e4c7;
+  color: #075b2b;
+  font-weight: 800;
+}
+td.rate.lo {
+  background: #f3b7b7;
+  color: #9e1111;
+  font-weight: 800;
+}
 td.base {
   font-weight: 700;
   position: sticky; left: 0;
