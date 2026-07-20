@@ -1,0 +1,18 @@
+[Unit]
+Description=FundArb funding-rate API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fundarb/backend
+Environment=POLL_SECONDS=20
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/fundarb/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8788 --workers 1
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

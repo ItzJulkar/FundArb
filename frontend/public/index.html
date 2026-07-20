@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FundArb — Funding Rate Arbitrage</title>
+  <meta name="description" content="Live perpetual funding rates across Binance, Bybit, Hyperliquid, Extended, RiseX, Variational, Nado." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <h1>FundArb</h1>
+          <p class="sub">Cross-exchange funding · live poll</p>
+        </div>
+      </div>
+      <div class="status" id="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="arb" type="button">Arbitrage</button>
+        <button class="tab" data-tab="matrix" type="button">Matrix</button>
+        <button class="tab" data-tab="rates" type="button">All rates</button>
+      </div>
+      <div class="filters">
+        <label class="field">
+          <span>Search</span>
+          <input id="search" type="search" placeholder="BTC, ETH, SOL…" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Min spread (bps / 8h)</span>
+          <input id="minBps" type="number" value="0.5" min="0" step="0.1" />
+        </label>
+        <label class="field">
+          <span>Exchange</span>
+          <select id="exFilter">
+            <option value="">All</option>
+            <option value="binance">Binance</option>
+            <option value="bybit">Bybit</option>
+            <option value="hyperliquid">Hyperliquid</option>
+            <option value="extended">Extended</option>
+            <option value="risex">RiseX</option>
+            <option value="variational">Variational</option>
+            <option value="nado">Nado</option>
+          </select>
+        </label>
+        <button id="refresh" class="btn" type="button">Refresh</button>
+      </div>
+    </section>
+
+    <section class="legend">
+      <span><i class="pos"></i> longs pay shorts</span>
+      <span><i class="neg"></i> shorts pay longs</span>
+      <span>Rates shown as <strong>8h %</strong> · APY annualized simple</span>
+      <span id="counts"></span>
+    </section>
+
+    <main>
+      <div id="panel-arb" class="panel active">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Base</th>
+                <th>Spread 8h</th>
+                <th>Spread APY</th>
+                <th>Long venue (lower)</th>
+                <th>Short venue (higher)</th>
+                <th>Venues</th>
+              </tr>
+            </thead>
+            <tbody id="arbBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="panel-matrix" class="panel">
+        <div class="table-wrap matrix-wrap">
+          <table id="matrixTable">
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="panel-rates" class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Base</th>
+                <th>Exchange</th>
+                <th>Symbol</th>
+                <th>8h %</th>
+                <th>1h %</th>
+                <th>APY %</th>
+                <th>Mark</th>
+                <th>Interval</th>
+              </tr>
+            </thead>
+            <tbody id="ratesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <span>Sources: Binance · Bybit · Hyperliquid · Extended · RiseX · Variational · Nado</span>
+      <span>Display only · not trading advice · fees/latency/borrow not included</span>
+    </footer>
+  </div>
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
