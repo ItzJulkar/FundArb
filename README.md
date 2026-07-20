@@ -13,6 +13,7 @@ Cross-exchange **perpetual funding rate** tracker + simple arbitrage scanner.
 | risex | `api.rise.trade/v1/markets` |
 | variational | `omni-client-api.../metadata/stats` |
 | nado | gateway symbols + archive `funding_rates` |
+| sodex | `gateway-mainnet.sodex.dev` symbol list + per-symbol funding-rate |
 
 ## Architecture
 

@@ -366,6 +366,79 @@ async def collect_nado(client: httpx.AsyncClient) -> list[dict]:
     return out
 
 
+async def collect_sodex(client: httpx.AsyncClient) -> list[dict]:
+    """SoDEX (ValueChain perp DEX) — gateway-mainnet.sodex.dev"""
+    base = "https://gateway-mainnet.sodex.dev"
+    # symbols
+    sr = await client.get(f"{base}/futures/fapi/market/v1/public/symbol/list")
+    sr.raise_for_status()
+    sbody = sr.json()
+    symbols = sbody.get("data") or []
+    active = [
+        s
+        for s in symbols
+        if (s.get("contractType") or "").upper() == "PERPETUAL"
+        and s.get("tradeSwitch")
+        and s.get("state") == 0
+        and s.get("symbol")
+    ]
+    if not active:
+        return []
+
+    # mark / index from agg-tickers (optional)
+    marks: dict[str, tuple[float | None, float | None, float | None]] = {}
+    try:
+        tr = await client.get(f"{base}/futures/fapi/market/v1/public/q/agg-tickers")
+        if tr.status_code == 200:
+            for it in (tr.json().get("data") or []):
+                sym = it.get("s") or ""
+                if not sym:
+                    continue
+                marks[sym] = (
+                    _f(it.get("m")) or None,
+                    _f(it.get("i")) or None,
+                    _f(it.get("v")) or None,
+                )
+    except Exception as e:
+        log.debug("sodex agg-tickers: %s", e)
+
+    async def one(sym: str) -> dict | None:
+        r = await client.get(
+            f"{base}/futures/fapi/market/v1/public/q/funding-rate",
+            params={"symbol": sym},
+        )
+        if r.status_code != 200:
+            return None
+        data = (r.json() or {}).get("data") or {}
+        rate = _f(data.get("fundingRate"))
+        # collectionInterval is seconds (3600 = 1h)
+        iv_s = _f(data.get("collectionInterval"), 3600.0) or 3600.0
+        interval_h = iv_s / 3600.0
+        mk, idx, vol = marks.get(sym, (None, None, None))
+        nxt = data.get("nextCollectionTime")
+        return _row(
+            exchange="sodex",
+            symbol_raw=sym,
+            rate=rate,
+            interval_h=interval_h,
+            mark=mk,
+            index=idx,
+            volume_24h=vol,
+            next_funding_ms=int(nxt) if nxt else None,
+        )
+
+    # ~80 symbols; fan-out
+    results = await asyncio.gather(*(one(s["symbol"]) for s in active), return_exceptions=True)
+    out: list[dict] = []
+    for item in results:
+        if isinstance(item, Exception):
+            log.debug("sodex one: %s", item)
+            continue
+        if item:
+            out.append(item)
+    return out
+
+
 COLLECTORS = {
     "binance": collect_binance,
     "bybit": collect_bybit,
@@ -374,11 +447,12 @@ COLLECTORS = {
     "risex": collect_risex,
     "variational": collect_variational,
     "nado": collect_nado,
+    "sodex": collect_sodex,
 }
 
 
 async def collect_all(timeout: float = 25.0) -> dict[str, Any]:
-    limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+    limits = httpx.Limits(max_connections=80, max_keepalive_connections=20)
     async with httpx.AsyncClient(
         timeout=timeout,
         headers={"User-Agent": UA, "Accept": "application/json"},
