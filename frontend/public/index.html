@@ -1,123 +1,135 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FundArb — Funding Rate Arbitrage</title>
-  <meta name="description" content="Live perpetual funding rates across Binance, Bybit, Hyperliquid, Extended, RiseX, Variational, Nado." />
+  <title>Julkar FundingRate</title>
+  <meta name="description" content="Cross-exchange perpetual funding rates & arbitrage — Binance, Bybit, Hyperliquid, Extended, RiseX, Variational, Nado" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="app">
     <header class="top">
       <div class="brand">
-        <div class="mark" aria-hidden="true"></div>
+        <span class="mark" aria-hidden="true"></span>
         <div>
-          <h1>FundArb</h1>
-          <p class="sub">Cross-exchange funding · live poll</p>
+          <div class="name">JULKAR FUNDINGRATE</div>
+          <div class="sub">LIVE FUNDING · CROSS-EXCHANGE ARB</div>
         </div>
       </div>
-      <div class="status" id="status">
-        <span class="dot" id="dot"></span>
-        <span id="statusText">connecting…</span>
+
+      <div class="chips" id="tabs">
+        <button type="button" class="chip active" data-tab="arb">ARB</button>
+        <button type="button" class="chip" data-tab="matrix">MATRIX</button>
+        <button type="button" class="chip" data-tab="rates">RATES</button>
+      </div>
+
+      <div class="tools">
+        <input id="search" type="search" placeholder="BTC ETH SOL…" autocomplete="off" spellcheck="false" />
+        <label class="topn">MIN BPS <input id="minBps" type="number" value="0.5" min="0" step="0.1" /></label>
+        <select id="exFilter" title="Exchange filter">
+          <option value="">ALL EX</option>
+          <option value="binance">BINANCE</option>
+          <option value="bybit">BYBIT</option>
+          <option value="hyperliquid">HYPERLIQUID</option>
+          <option value="extended">EXTENDED</option>
+          <option value="risex">RISEX</option>
+          <option value="variational">VARIATIONAL</option>
+          <option value="nado">NADO</option>
+        </select>
+        <button id="refresh" class="pill" type="button">REFRESH</button>
+        <span class="status" id="statusText">…</span>
       </div>
     </header>
 
-    <section class="toolbar">
-      <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="arb" type="button">Arbitrage</button>
-        <button class="tab" data-tab="matrix" type="button">Matrix</button>
-        <button class="tab" data-tab="rates" type="button">All rates</button>
-      </div>
-      <div class="filters">
-        <label class="field">
-          <span>Search</span>
-          <input id="search" type="search" placeholder="BTC, ETH, SOL…" autocomplete="off" />
-        </label>
-        <label class="field">
-          <span>Min spread (bps / 8h)</span>
-          <input id="minBps" type="number" value="0.5" min="0" step="0.1" />
-        </label>
-        <label class="field">
-          <span>Exchange</span>
-          <select id="exFilter">
-            <option value="">All</option>
-            <option value="binance">Binance</option>
-            <option value="bybit">Bybit</option>
-            <option value="hyperliquid">Hyperliquid</option>
-            <option value="extended">Extended</option>
-            <option value="risex">RiseX</option>
-            <option value="variational">Variational</option>
-            <option value="nado">Nado</option>
-          </select>
-        </label>
-        <button id="refresh" class="btn" type="button">Refresh</button>
-      </div>
-    </section>
-
-    <section class="legend">
-      <span><i class="pos"></i> longs pay shorts</span>
-      <span><i class="neg"></i> shorts pay longs</span>
-      <span>Rates shown as <strong>8h %</strong> · APY annualized simple</span>
-      <span id="counts"></span>
-    </section>
-
-    <main>
-      <div id="panel-arb" class="panel active">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Base</th>
-                <th>Spread 8h</th>
-                <th>Spread APY</th>
-                <th>Long venue (lower)</th>
-                <th>Short venue (higher)</th>
-                <th>Venues</th>
-              </tr>
-            </thead>
-            <tbody id="arbBody"></tbody>
-          </table>
+    <main class="stage">
+      <section class="map-pane">
+        <div class="legend-bar">
+          <span><i class="sw pos"></i> LONGS PAY</span>
+          <span><i class="sw neg"></i> SHORTS PAY</span>
+          <span>SHOWING <b>8H %</b> · APY SIMPLE</span>
+          <span id="counts" class="dim"></span>
         </div>
-      </div>
 
-      <div id="panel-matrix" class="panel">
-        <div class="table-wrap matrix-wrap">
-          <table id="matrixTable">
-            <thead id="matrixHead"></thead>
-            <tbody id="matrixBody"></tbody>
-          </table>
+        <div id="panel-arb" class="panel-view active">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>BASE</th>
+                  <th>SPREAD 8H</th>
+                  <th>SPREAD APY</th>
+                  <th>LONG (LOWER)</th>
+                  <th>SHORT (HIGHER)</th>
+                  <th>VENUES</th>
+                </tr>
+              </thead>
+              <tbody id="arbBody"></tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <div id="panel-rates" class="panel">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Base</th>
-                <th>Exchange</th>
-                <th>Symbol</th>
-                <th>8h %</th>
-                <th>1h %</th>
-                <th>APY %</th>
-                <th>Mark</th>
-                <th>Interval</th>
-              </tr>
-            </thead>
-            <tbody id="ratesBody"></tbody>
-          </table>
+        <div id="panel-matrix" class="panel-view">
+          <div class="table-wrap">
+            <table id="matrixTable">
+              <thead id="matrixHead"></thead>
+              <tbody id="matrixBody"></tbody>
+            </table>
+          </div>
         </div>
-      </div>
+
+        <div id="panel-rates" class="panel-view">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>BASE</th>
+                  <th>EX</th>
+                  <th>SYMBOL</th>
+                  <th>8H %</th>
+                  <th>1H %</th>
+                  <th>APY %</th>
+                  <th>MARK</th>
+                  <th>INT</th>
+                </tr>
+              </thead>
+              <tbody id="ratesBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <div class="panel meta">
+          <div class="k">STATUS</div>
+          <h1 id="sideTitle">FUNDING</h1>
+          <p id="sideMeta" class="dim">Connecting…</p>
+        </div>
+        <div class="panel stats">
+          <div><span class="k">Rows</span><b id="sRows">—</b></div>
+          <div><span class="k">Poll</span><b id="sPoll">—</b></div>
+          <div><span class="k">Age</span><b id="sAge">—</b></div>
+          <div><span class="k">Arbs</span><b id="sArbs">—</b></div>
+        </div>
+        <div class="panel">
+          <div class="k">EXCHANGES</div>
+          <div id="exList" class="ex-list dim">—</div>
+        </div>
+        <div class="panel">
+          <div class="k">NOTE</div>
+          <p class="dim note">
+            Display only. Fees, borrow, basis & latency not included.
+            Positive rate = longs pay shorts.
+          </p>
+        </div>
+        <div class="panel foot-panel">
+          <a class="ghost full" href="https://github.com/ItzJulkar/FundArb" target="_blank" rel="noopener">GITHUB →</a>
+        </div>
+      </aside>
     </main>
-
-    <footer class="foot">
-      <span>Sources: Binance · Bybit · Hyperliquid · Extended · RiseX · Variational · Nado</span>
-      <span>Display only · not trading advice · fees/latency/borrow not included</span>
-    </footer>
   </div>
   <script src="./config.js"></script>
   <script src="./app.js"></script>

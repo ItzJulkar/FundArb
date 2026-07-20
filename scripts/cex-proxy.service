@@ -1,0 +1,16 @@
+[Unit]
+Description=FundArb CEX proxy (Binance/Bybit)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/fundarb-cex-proxy
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/ubuntu/fundarb-cex-proxy/cex_proxy.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

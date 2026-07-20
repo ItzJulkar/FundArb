@@ -61,19 +61,41 @@ def _row(
     }
 
 
-async def collect_binance(client: httpx.AsyncClient) -> list[dict]:
-    r = await client.get("https://fapi.binance.com/fapi/v1/premiumIndex")
+# Optional Vercel/edge proxy when VPS IP is geo-blocked by CEX (Binance 451 / Bybit 403).
+CEX_PROXY = (
+    __import__("os").environ.get("CEX_PROXY_URL", "").rstrip("/")
+    or "http://129.226.213.46:8790/cex"
+)
+
+
+async def _cex_proxy(client: httpx.AsyncClient, exchange: str) -> list[dict]:
+    r = await client.get(CEX_PROXY, params={"exchange": exchange}, timeout=40.0)
     r.raise_for_status()
+    data = r.json()
+    return (data.get("exchanges") or {}).get(exchange) or []
+
+
+async def collect_binance(client: httpx.AsyncClient) -> list[dict]:
+    items: list[dict]
+    try:
+        r = await client.get("https://fapi.binance.com/fapi/v1/premiumIndex")
+        r.raise_for_status()
+        items = r.json()
+    except Exception as e:
+        log.warning("binance direct failed (%s) — trying CEX proxy", e)
+        items = await _cex_proxy(client, "binance")
+
     out = []
-    for it in r.json():
+    for it in items:
         sym = it.get("symbol") or ""
         if not sym.endswith("USDT"):
             continue
+        rate_key = "lastFundingRate" if "lastFundingRate" in it else "fundingRate"
         row = _row(
             exchange="binance",
             symbol_raw=sym,
-            rate=_f(it.get("lastFundingRate")),
-            interval_h=8.0,
+            rate=_f(it.get(rate_key)),
+            interval_h=_f(it.get("interval_h"), 8.0) or 8.0,
             mark=_f(it.get("markPrice")) or None,
             index=_f(it.get("indexPrice")) or None,
             next_funding_ms=int(it["nextFundingTime"]) if it.get("nextFundingTime") else None,
@@ -84,23 +106,29 @@ async def collect_binance(client: httpx.AsyncClient) -> list[dict]:
 
 
 async def collect_bybit(client: httpx.AsyncClient) -> list[dict]:
-    r = await client.get(
-        "https://api.bybit.com/v5/market/tickers",
-        params={"category": "linear"},
-    )
-    r.raise_for_status()
-    data = r.json()
-    items = (data.get("result") or {}).get("list") or []
+    items: list[dict]
+    try:
+        r = await client.get(
+            "https://api.bybit.com/v5/market/tickers",
+            params={"category": "linear"},
+        )
+        r.raise_for_status()
+        data = r.json()
+        items = (data.get("result") or {}).get("list") or []
+    except Exception as e:
+        log.warning("bybit direct failed (%s) — trying CEX proxy", e)
+        items = await _cex_proxy(client, "bybit")
+
     out = []
     for it in items:
         sym = it.get("symbol") or ""
         if not sym.endswith("USDT"):
             continue
-        interval_h = _f(it.get("fundingIntervalHour"), 8.0) or 8.0
+        interval_h = _f(it.get("fundingIntervalHour") or it.get("interval_h"), 8.0) or 8.0
         row = _row(
             exchange="bybit",
             symbol_raw=sym,
-            rate=_f(it.get("fundingRate")),
+            rate=_f(it.get("fundingRate") or it.get("lastFundingRate")),
             interval_h=interval_h,
             mark=_f(it.get("markPrice")) or None,
             index=_f(it.get("indexPrice")) or None,
@@ -111,7 +139,6 @@ async def collect_bybit(client: httpx.AsyncClient) -> list[dict]:
         if row:
             out.append(row)
     return out
-
 
 async def collect_hyperliquid(client: httpx.AsyncClient) -> list[dict]:
     r = await client.post(

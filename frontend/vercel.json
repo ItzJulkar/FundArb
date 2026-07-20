@@ -1,7 +1,4 @@
 {
-  "version": 2,
-  "name": "fundarb",
-  "public": true,
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
@@ -13,6 +10,9 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "http://159.195.14.158:8788/api/$1" }
+    {
+      "source": "/api/(health|rates|matrix|arb)",
+      "destination": "http://159.195.14.158:8788/api/$1"
+    }
   ]
 }

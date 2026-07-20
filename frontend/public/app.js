@@ -1,4 +1,4 @@
-/* FundArb frontend */
+/* Julkar FundingRate — ArcBubbles-style UI logic */
 (() => {
   const $ = (id) => document.getElementById(id);
   const apiBase = () => (window.FUNDARB_API || "").replace(/\/$/, "");
@@ -14,10 +14,9 @@
   }
 
   function pct(x, digits = 4) {
-    if (x === null || x === undefined || Number.isNaN(x)) return "—";
+    if (x === null || x === undefined || Number.isNaN(Number(x))) return "—";
     const v = Number(x) * 100;
-    const s = v.toFixed(digits);
-    return (v > 0 ? "+" : "") + s + "%";
+    return (v > 0 ? "+" : "") + v.toFixed(digits) + "%";
   }
 
   function clsRate(x) {
@@ -28,26 +27,21 @@
 
   function fmtAge(s) {
     if (s == null) return "—";
-    if (s < 60) return `${s}s ago`;
-    return `${Math.floor(s / 60)}m ${s % 60}s ago`;
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
   }
 
-  function setStatus(ok, text) {
-    $("dot").className = "dot " + (ok ? "ok" : "bad");
-    $("statusText").textContent = text;
-  }
-
-  // tabs
-  document.querySelectorAll(".tab").forEach((btn) => {
+  // tabs = chips
+  document.querySelectorAll("#tabs .chip").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+      document.querySelectorAll("#tabs .chip").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".panel-view").forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
       $("panel-" + btn.dataset.tab).classList.add("active");
     });
   });
 
-  let cache = { arb: null, matrix: null, rates: null };
+  let cache = { arb: null, matrix: null, rates: null, health: null };
 
   function renderArb() {
     const data = cache.arb;
@@ -70,17 +64,17 @@
             (v) =>
               `<span class="vchip"><span class="ex">${v.exchange}</span> <span class="${clsRate(
                 v.rate_8h
-              )}">${pct(v.rate_8h, 4)}</span></span>`
+              )} mono">${pct(v.rate_8h, 4)}</span></span>`
           )
           .join("");
         return `<tr>
           <td><strong>${r.base}</strong></td>
           <td class="mono pos">${pct(r.spread_8h, 4)}</td>
           <td class="mono pos">${pct(r.spread_apy, 2)}</td>
-          <td><span class="pill"><span class="ex">${r.long_exchange}</span> <span class="mono ${clsRate(
+          <td><span class="pill-row"><span class="ex">${r.long_exchange}</span><span class="mono ${clsRate(
             r.long_rate_8h
           )}">${pct(r.long_rate_8h, 4)}</span></span></td>
-          <td><span class="pill"><span class="ex">${r.short_exchange}</span> <span class="mono ${clsRate(
+          <td><span class="pill-row"><span class="ex">${r.short_exchange}</span><span class="mono ${clsRate(
             r.short_rate_8h
           )}">${pct(r.short_rate_8h, 4)}</span></span></td>
           <td><div class="venues">${venues}</div></td>
@@ -101,7 +95,7 @@
     let bases = data.bases || [];
     if (q) bases = bases.filter((b) => b.base.includes(q));
 
-    $("matrixHead").innerHTML = `<tr><th>Base</th>${exs
+    $("matrixHead").innerHTML = `<tr><th>BASE</th>${exs
       .map((e) => `<th>${e}</th>`)
       .join("")}</tr>`;
 
@@ -140,7 +134,11 @@
     const ex = $("exFilter").value;
     let rows = data.rows || [];
     if (ex) rows = rows.filter((r) => r.exchange === ex);
-    if (q) rows = rows.filter((r) => r.base.includes(q) || (r.symbol || "").toUpperCase().includes(q));
+    if (q) {
+      rows = rows.filter(
+        (r) => r.base.includes(q) || (r.symbol || "").toUpperCase().includes(q)
+      );
+    }
     rows = rows.slice(0, 500);
     if (!rows.length) {
       body.innerHTML = `<tr><td colspan="8" class="empty">No rows</td></tr>`;
@@ -155,17 +153,44 @@
         <td class="mono ${clsRate(r.rate_8h)}">${pct(r.rate_8h, 4)}</td>
         <td class="mono ${clsRate(r.rate_1h)}">${pct(r.rate_1h, 5)}</td>
         <td class="mono ${clsRate(r.rate_apy)}">${pct(r.rate_apy, 2)}</td>
-        <td class="mono muted">${r.mark != null ? Number(r.mark).toLocaleString(undefined, { maximumFractionDigits: 6 }) : "—"}</td>
+        <td class="mono muted">${
+          r.mark != null
+            ? Number(r.mark).toLocaleString(undefined, { maximumFractionDigits: 6 })
+            : "—"
+        }</td>
         <td class="muted">${r.interval_h}h</td>
       </tr>`
       )
       .join("");
   }
 
+  function renderSide() {
+    const h = cache.health || {};
+    const arb = cache.arb || {};
+    $("sRows").textContent = h.n_rows ?? "—";
+    $("sPoll").textContent = h.poll_ms != null ? `${Math.round(h.poll_ms)}ms` : "—";
+    $("sAge").textContent = fmtAge(h.age_s);
+    $("sArbs").textContent = arb.n ?? "—";
+    $("sideTitle").textContent = "LIVE";
+    $("sideMeta").textContent = h.ok
+      ? `poll #${h.poll_n || 0} · ${fmtAge(h.age_s)} ago`
+      : "API offline / connecting";
+    const counts = h.counts || {};
+    $("exList").innerHTML = Object.keys(counts).length
+      ? Object.entries(counts)
+          .map(([k, v]) => `<div>${k.toUpperCase()}<b>${v}</b></div>`)
+          .join("")
+      : "—";
+    $("counts").textContent = Object.entries(counts)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(" · ");
+  }
+
   function renderAll() {
     renderArb();
     renderMatrix();
     renderRates();
+    renderSide();
   }
 
   async function load() {
@@ -177,18 +202,12 @@
         api("/api/matrix", { limit_bases: 120 }),
         api("/api/rates", { limit: 3000 }),
       ]);
-      cache = { arb, matrix, rates };
-      const parts = Object.entries(health.counts || {})
-        .map(([k, v]) => `${k}:${v}`)
-        .join(" · ");
-      $("counts").textContent = parts;
-      setStatus(
-        true,
-        `live · ${fmtAge(health.age_s)} · poll ${health.poll_ms}ms · ${health.n_rows} rows`
-      );
+      cache = { health, arb, matrix, rates };
+      $("statusText").textContent = `LIVE · ${fmtAge(health.age_s)} · ${health.n_rows} ROWS`;
       renderAll();
     } catch (e) {
-      setStatus(false, `API error: ${e.message}`);
+      $("statusText").textContent = `ERR ${e.message}`;
+      $("sideMeta").textContent = String(e.message);
     }
   }
 
