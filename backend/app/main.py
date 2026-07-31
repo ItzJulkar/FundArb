@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .collectors import collect_all
+from .impact import available_bases, impact
 from .store import store
 
 logging.basicConfig(
@@ -183,6 +184,18 @@ async def arb(
     return data
 
 
+@app.get("/api/impact/bases")
+async def impact_bases() -> dict[str, Any]:
+    return {"bases": available_bases()}
+
+
+@app.get("/api/impact")
+async def trade_impact(
+    base: str = Query("BTC", min_length=1, max_length=32),
+) -> dict[str, Any]:
+    return await impact(base)
+
+
 @app.get("/")
 async def root() -> JSONResponse:
     return JSONResponse(
@@ -193,6 +206,8 @@ async def root() -> JSONResponse:
                 "/api/rates",
                 "/api/matrix",
                 "/api/arb",
+                "/api/impact/bases",
+                "/api/impact?base=BTC",
             ],
         }
     )
