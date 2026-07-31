@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import Any
 
 import httpx
+from websockets.asyncio.client import connect as ws_connect
 
 from .store import store
 
@@ -21,6 +23,7 @@ BASE_FEES = {
     "extended": (0.00025, "Published base taker rate"),
     "risex": (0.00030, "Tier 1 taker rate; higher-volume tiers may differ"),
     "variational": (0.0, "Omni charges zero explicit trading fees; spread is embedded"),
+    "grvt": (0.00045, "Published Level 1 taker rate; volume tier may reduce it"),
 }
 
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -28,6 +31,11 @@ _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 def _f(value: Any) -> float:
     return float(value)
+
+
+def _perpl_fee_rate(raw_fee: Any) -> float:
+    """Perpl contract fee values use the SDK's fixed five-decimal scale."""
+    return _f(raw_fee) / 100_000
 
 
 def simulate_book(
@@ -200,6 +208,86 @@ async def _sodex(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, fl
     return data["b"], data["a"], _f(market["takerFee"]), "Live market taker fee"
 
 
+async def _lighter(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, float, str]:
+    root = "https://mainnet.zklighter.elliot.ai/api/v1"
+    details = (await client.get(f"{root}/orderBookDetails")).json()["order_book_details"]
+    market = next(
+        item for item in details
+        if item["symbol"].upper() == symbol.upper() and item["status"] == "active"
+    )
+    response = await client.get(
+        f"{root}/orderBookOrders",
+        params={"market_id": market["market_id"], "limit": 100},
+    )
+    response.raise_for_status()
+    data = response.json()
+    bids = [[item["price"], item["remaining_base_amount"]] for item in data["bids"]]
+    asks = [[item["price"], item["remaining_base_amount"]] for item in data["asks"]]
+    fee = _f(market["taker_fee"])
+    return bids, asks, fee, "Live market taker fee from Lighter metadata"
+
+
+async def _perpl(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, float, str]:
+    context_response = await client.get("https://app.perpl.xyz/api/v1/pub/context")
+    context_response.raise_for_status()
+    market = next(
+        item for item in context_response.json()["markets"]
+        if (item.get("symbol") or item["name"]).upper() == symbol.upper()
+        and item["config"]["is_open"]
+    )
+    async with ws_connect(
+        "wss://app.perpl.xyz/ws/v1/market-data",
+        open_timeout=10,
+        close_timeout=3,
+    ) as websocket:
+        await websocket.send(
+            '{"mt":5,"subs":[{"stream":"order-book@%s","subscribe":true}]}'
+            % market["id"]
+        )
+        snapshot = None
+        for _ in range(12):
+            message = await asyncio.wait_for(websocket.recv(), timeout=12)
+            payload = json.loads(message)
+            if payload.get("mt") == 15:
+                snapshot = payload
+                break
+        if snapshot is None:
+            raise RuntimeError("Perpl L2 snapshot unavailable")
+
+    price_scale = 10 ** market["config"]["price_decimals"]
+    size_scale = 10 ** market["config"]["size_decimals"]
+    bids = [[level["p"] / price_scale, level["s"] / size_scale] for level in snapshot["bid"]]
+    asks = [[level["p"] / price_scale, level["s"] / size_scale] for level in snapshot["ask"]]
+    fee = _perpl_fee_rate(market["config"]["taker_fee"])
+    return bids, asks, fee, "Live Perpl market taker fee; account incentives may differ"
+
+
+async def _grvt(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, float, str]:
+    root = "https://market-data.grvt.io/full/v1"
+    instruments_response = await client.post(
+        f"{root}/all_instruments",
+        json={"is_active": True},
+    )
+    instruments_response.raise_for_status()
+    market = next(
+        item for item in instruments_response.json()["result"]
+        if item["base"].upper() == symbol.upper()
+        and item["kind"] == "PERPETUAL"
+        and "ORDERBOOK" in item["venues"]
+        and item["quote"] == "USDT"
+    )
+    response = await client.post(
+        f"{root}/book",
+        json={"instrument": market["instrument"], "depth": 500},
+    )
+    response.raise_for_status()
+    data = response.json()["result"]
+    bids = [[level["price"], level["size"]] for level in data["bids"]]
+    asks = [[level["price"], level["size"]] for level in data["asks"]]
+    fee, note = BASE_FEES["grvt"]
+    return bids, asks, fee, note
+
+
 async def _variational(client: httpx.AsyncClient, symbol: str) -> dict[str, Any]:
     response = await client.get("https://omni-client-api.prod.ap-northeast-1.variational.io/metadata/stats")
     response.raise_for_status()
@@ -240,6 +328,9 @@ FETCHERS = {
     "risex": _risex,
     "nado": _nado,
     "sodex": _sodex,
+    "lighter": _lighter,
+    "perpl": _perpl,
+    "grvt": _grvt,
 }
 
 
@@ -250,6 +341,9 @@ async def impact(base: str) -> dict[str, Any]:
         return cached[1]
 
     symbols = _market_symbols(base)
+    symbols.setdefault("lighter", base)
+    symbols.setdefault("perpl", base)
+    symbols.setdefault("grvt", base)
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
     async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers={"User-Agent": UA, "Accept": "application/json"}, limits=limits) as client:
         async def one(exchange: str, symbol: str) -> dict[str, Any]:
@@ -275,7 +369,7 @@ async def impact(base: str) -> dict[str, Any]:
         tasks = [one(exchange, symbol) for exchange, symbol in symbols.items() if exchange in FETCHERS or exchange == "variational"]
         venues = await asyncio.gather(*tasks)
 
-    order = {name: index for index, name in enumerate(("binance", "bybit", "hyperliquid", "extended", "risex", "variational", "nado", "sodex"))}
+    order = {name: index for index, name in enumerate(("binance", "bybit", "hyperliquid", "extended", "risex", "variational", "nado", "sodex", "lighter", "perpl", "grvt"))}
     venues.sort(key=lambda item: order.get(item["exchange"], 99))
     result = {"ok": True, "base": base, "sizes": list(SIZES), "updated_at": int(time.time()), "venues": venues}
     _cache[base] = (time.monotonic(), result)

@@ -1,6 +1,6 @@
 import pytest
 
-from app.impact import BASE_FEES, _with_fee, simulate_book
+from app.impact import BASE_FEES, _perpl_fee_rate, _with_fee, simulate_book
 
 
 def test_buy_walks_asks_by_quote_notional():
@@ -41,3 +41,11 @@ def test_fee_and_total_cost_are_explicit():
 
 def test_risex_default_taker_fee_matches_published_tier_one_rate():
     assert BASE_FEES["risex"][0] == 0.00030
+
+
+def test_grvt_default_taker_fee_matches_published_level_one_rate():
+    assert BASE_FEES["grvt"][0] == 0.00045
+
+
+def test_perpl_fee_uses_contract_five_decimal_scale():
+    assert _perpl_fee_rate(690) == pytest.approx(0.0069)
