@@ -1,6 +1,6 @@
 import pytest
 
-from app.impact import BASE_FEES, _perpl_fee_rate, _with_fee, simulate_book
+from app.impact import BASE_FEES, _lighter_levels, _perpl_fee_rate, _with_fee, simulate_book
 
 
 def test_buy_walks_asks_by_quote_notional():
@@ -47,5 +47,14 @@ def test_grvt_default_taker_fee_matches_published_level_one_rate():
     assert BASE_FEES["grvt"][0] == 0.00045
 
 
-def test_perpl_fee_uses_contract_five_decimal_scale():
-    assert _perpl_fee_rate(690) == pytest.approx(0.0069)
+def test_perpl_fee_uses_public_micros_scale():
+    assert _perpl_fee_rate(690) == pytest.approx(0.00069)
+
+
+def test_lighter_raw_orders_are_aggregated_and_sorted():
+    orders = [
+        {"price": "101", "remaining_base_amount": "2"},
+        {"price": "100", "remaining_base_amount": "1"},
+        {"price": "101", "remaining_base_amount": "3"},
+    ]
+    assert _lighter_levels(orders, reverse=True) == [[101.0, 5.0], [100.0, 1.0]]

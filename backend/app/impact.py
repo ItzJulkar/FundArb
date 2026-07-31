@@ -34,8 +34,17 @@ def _f(value: Any) -> float:
 
 
 def _perpl_fee_rate(raw_fee: Any) -> float:
-    """Perpl contract fee values use the SDK's fixed five-decimal scale."""
-    return _f(raw_fee) / 100_000
+    """Perpl public fee values are Micros: a fractional rate scaled by 1e6."""
+    return _f(raw_fee) / 1_000_000
+
+
+def _lighter_levels(orders: list[dict[str, Any]], reverse: bool) -> list[list[float]]:
+    """Aggregate Lighter's raw orders into sorted price levels."""
+    levels: dict[float, float] = {}
+    for order in orders:
+        price = _f(order["price"])
+        levels[price] = levels.get(price, 0.0) + _f(order["remaining_base_amount"])
+    return [[price, levels[price]] for price in sorted(levels, reverse=reverse)]
 
 
 def simulate_book(
@@ -210,19 +219,19 @@ async def _sodex(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, fl
 
 async def _lighter(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, float, str]:
     root = "https://mainnet.zklighter.elliot.ai/api/v1"
-    details = (await client.get(f"{root}/orderBookDetails")).json()["order_book_details"]
+    details = (await client.get(f"{root}/orderBookDetails", params={"filter": "perp"})).json()["order_book_details"]
     market = next(
         item for item in details
         if item["symbol"].upper() == symbol.upper() and item["status"] == "active"
     )
     response = await client.get(
         f"{root}/orderBookOrders",
-        params={"market_id": market["market_id"], "limit": 100},
+        params={"market_id": market["market_id"], "limit": 250},
     )
     response.raise_for_status()
     data = response.json()
-    bids = [[item["price"], item["remaining_base_amount"]] for item in data["bids"]]
-    asks = [[item["price"], item["remaining_base_amount"]] for item in data["asks"]]
+    bids = _lighter_levels(data["bids"], reverse=True)
+    asks = _lighter_levels(data["asks"], reverse=False)
     fee = _f(market["taker_fee"])
     return bids, asks, fee, "Live market taker fee from Lighter metadata"
 
