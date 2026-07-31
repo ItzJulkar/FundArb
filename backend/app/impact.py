@@ -19,7 +19,7 @@ BASE_FEES = {
     "bybit": (0.00055, "Base derivatives taker rate; account tier may differ"),
     "hyperliquid": (0.00045, "Base perp taker rate; volume tier may differ"),
     "extended": (0.00025, "Published base taker rate"),
-    "risex": (0.00050, "Base taker rate; account tier may differ"),
+    "risex": (0.00030, "Tier 1 taker rate; higher-volume tiers may differ"),
     "variational": (0.0, "Omni charges zero explicit trading fees; spread is embedded"),
 }
 
@@ -30,11 +30,17 @@ def _f(value: Any) -> float:
     return float(value)
 
 
-def simulate_book(levels: list[list[float]], side: str, notional: float) -> dict[str, Any]:
-    """Walk asks by quote notional or bids by equivalent best-price base size."""
+def simulate_book(
+    levels: list[list[float]],
+    side: str,
+    notional: float,
+    reference_price: float | None = None,
+) -> dict[str, Any]:
+    """Walk book depth and measure execution impact against the mid price."""
     if not levels:
         raise ValueError("empty order book")
     best = levels[0][0]
+    reference = reference_price or best
     remaining = notional
     base_qty = 0.0
     quote_qty = 0.0
@@ -49,10 +55,10 @@ def simulate_book(levels: list[list[float]], side: str, notional: float) -> dict
                 break
         filled_notional = quote_qty
         vwap = quote_qty / base_qty if base_qty else 0.0
-        slippage = max(0.0, vwap / best - 1.0) if best and base_qty else 0.0
-        slippage_usd = max(0.0, quote_qty - base_qty * best)
+        slippage = max(0.0, vwap / reference - 1.0) if reference and base_qty else 0.0
+        slippage_usd = max(0.0, quote_qty - base_qty * reference)
     else:
-        target_base = notional / best
+        target_base = notional / reference
         remaining_base = target_base
         for price, qty in levels:
             take_base = min(remaining_base, qty)
@@ -61,14 +67,15 @@ def simulate_book(levels: list[list[float]], side: str, notional: float) -> dict
             remaining_base -= take_base
             if remaining_base <= 1e-12:
                 break
-        filled_notional = base_qty * best
+        filled_notional = base_qty * reference
         vwap = quote_qty / base_qty if base_qty else 0.0
-        slippage = max(0.0, 1.0 - vwap / best) if best and base_qty else 0.0
-        slippage_usd = max(0.0, base_qty * best - quote_qty)
+        slippage = max(0.0, 1.0 - vwap / reference) if reference and base_qty else 0.0
+        slippage_usd = max(0.0, base_qty * reference - quote_qty)
 
     return {
         "notional": notional,
         "best_price": best,
+        "reference_price": reference,
         "vwap": vwap,
         "slippage": slippage,
         "slippage_usd": slippage_usd,
@@ -118,7 +125,7 @@ async def _binance(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, 
 async def _bybit(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, float, str]:
     response = await client.get(
         "https://api.bybit.com/v5/market/orderbook",
-        params={"category": "linear", "symbol": symbol, "limit": 500},
+        params={"category": "linear", "symbol": symbol, "limit": 1000},
     )
     response.raise_for_status()
     data = response.json()["result"]
@@ -149,7 +156,10 @@ async def _extended(client: httpx.AsyncClient, symbol: str) -> tuple[list, list,
 async def _risex(client: httpx.AsyncClient, symbol: str) -> tuple[list, list, float, str]:
     markets = (await client.get("https://api.rise.trade/v1/markets")).json()["data"]["markets"]
     market = next(item for item in markets if item.get("display_name") == symbol or item.get("underlying") == symbol)
-    response = await client.get("https://api.rise.trade/v1/orderbook", params={"market_id": market["market_id"]})
+    response = await client.get(
+        "https://api.rise.trade/v1/orderbook",
+        params={"market_id": market["market_id"], "limit": 250},
+    )
     response.raise_for_status()
     data = response.json()["data"]
     bids = [[level["price"], level["quantity"]] for level in data["bids"]]
@@ -197,6 +207,7 @@ async def _variational(client: httpx.AsyncClient, symbol: str) -> dict[str, Any]
     quotes = listing["quotes"]
     base_bid = _f(quotes["base"]["bid"])
     base_ask = _f(quotes["base"]["ask"])
+    mid = (base_bid + base_ask) / 2
     output = {"exchange": "variational", "symbol": symbol, "fee_rate": 0.0, "fee_note": BASE_FEES["variational"][1], "model": "rfq_quotes", "buy": [], "sell": []}
     for size in SIZES:
         if size == 1_000:
@@ -214,10 +225,10 @@ async def _variational(client: httpx.AsyncClient, symbol: str) -> dict[str, Any]
             }
             estimated = True
         ask, bid = _f(quote["ask"]), _f(quote["bid"])
-        buy_slippage = max(0.0, ask / base_ask - 1.0)
-        sell_slippage = max(0.0, 1.0 - bid / base_bid)
-        output["buy"].append({"notional": size, "best_price": base_ask, "vwap": ask, "slippage": buy_slippage, "slippage_usd": size * buy_slippage, "filled_ratio": 1.0, "fee_usd": 0.0, "total_cost_usd": size * buy_slippage, "estimated": estimated})
-        output["sell"].append({"notional": size, "best_price": base_bid, "vwap": bid, "slippage": sell_slippage, "slippage_usd": size * sell_slippage, "filled_ratio": 1.0, "fee_usd": 0.0, "total_cost_usd": size * sell_slippage, "estimated": estimated})
+        buy_slippage = max(0.0, ask / mid - 1.0)
+        sell_slippage = max(0.0, 1.0 - bid / mid)
+        output["buy"].append({"notional": size, "best_price": base_ask, "reference_price": mid, "vwap": ask, "slippage": buy_slippage, "slippage_usd": size * buy_slippage, "filled_ratio": 1.0, "fee_usd": 0.0, "total_cost_usd": size * buy_slippage, "estimated": estimated})
+        output["sell"].append({"notional": size, "best_price": base_bid, "reference_price": mid, "vwap": bid, "slippage": sell_slippage, "slippage_usd": size * sell_slippage, "filled_ratio": 1.0, "fee_usd": 0.0, "total_cost_usd": size * sell_slippage, "estimated": estimated})
     return output
 
 
@@ -248,14 +259,15 @@ async def impact(base: str) -> dict[str, Any]:
                 bids, asks, fee, note = await FETCHERS[exchange](client, symbol)
                 bids_f = [[_f(price), _f(qty)] for price, qty in bids]
                 asks_f = [[_f(price), _f(qty)] for price, qty in asks]
+                mid = (bids_f[0][0] + asks_f[0][0]) / 2
                 return {
                     "exchange": exchange,
                     "symbol": symbol,
                     "fee_rate": fee,
                     "fee_note": note,
                     "model": "order_book",
-                    "buy": [_with_fee(simulate_book(asks_f, "buy", size), fee) for size in SIZES],
-                    "sell": [_with_fee(simulate_book(bids_f, "sell", size), fee) for size in SIZES],
+                    "buy": [_with_fee(simulate_book(asks_f, "buy", size, mid), fee) for size in SIZES],
+                    "sell": [_with_fee(simulate_book(bids_f, "sell", size, mid), fee) for size in SIZES],
                 }
             except Exception as exc:
                 return {"exchange": exchange, "symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
