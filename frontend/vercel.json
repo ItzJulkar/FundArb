@@ -12,7 +12,7 @@
   "rewrites": [
     {
       "source": "/api/(health|rates|matrix|arb)",
-      "destination": "http://159.195.14.158:8788/api/$1"
+      "destination": "http://129.226.213.46/api/$1"
     }
   ]
 }
